@@ -12,7 +12,7 @@ DeepSeek Harness 桌面版插件：**打开时自动最大化主窗口**（等�
 
 | 平台 | 策略 | 依赖 | 备注 |
 |---|---|---|---|
-| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** 自动回退 | pwsh 7 缺失时自动用 5.1（Windows 自带）；无需额外安装。5.1 的 `Add-Type` 内置编译器，脚本两版通用 |
+| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** 自动回退 | pwsh 7 缺失时自动用 5.1（Windows 自带）；无需额外安装。PowerShell 按 PATH 解析、不写死安装路径；5.1 的 `Add-Type` 内置编译器，脚本两版通用 |
 | macOS | 把窗口设为主屏可视区大小（`NSScreen.visibleFrame`，即「向窗口发送最大化指令」）；该调用失败时再点击绿色 `AXZoomButton` 作为补救 | `osascript`（系统自带） | 需要「辅助功能/Accessibility」授权，未授权会给出指引日志；`processName` 可覆盖应用名 |
 | Linux | `wmctrl` → `xdotool` 设置 `_NET_WM_STATE_MAXIMIZED` | 通常**未预装**，需自行安装 | 尽力而为；两者都缺则跳过 |
 
@@ -91,7 +91,8 @@ macOS 出于安全限制，用 `osascript`（System Events）控制其他 App �
 **诊断日志**：从 1.1.2 起，插件每一步都会追加写入 `~/.dsh/auto-maximize.log`
 （Windows：`%USERPROFILE%\.dsh\auto-maximize.log`）。排查「没生效」时直接看这个文件，能立刻看到
 `osascript` 返回的 `perm:`（缺授权）/ `nowindow:`（没找到窗口）/ `maximized-bounds`（成功）等结果。
-不需要日志时用 `logFile: false` 关闭，或直接删除该文件清空。
+不需要日志时用 `logFile: false` 关闭，或直接删除该文件清空。每次启动会把上一次日志轮转为
+`auto-maximize.log.old`，只保留本次与最近一次，文件不会无限累积。
 
 > 对比：**Windows 端不需要任何额外权限**——`ShowWindow(hwnd, SW_MAXIMIZE)` 是直接 Win32 API
 > 调用（非模拟点击），对同一用户的窗口无需提权。

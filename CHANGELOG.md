@@ -2,6 +2,22 @@
 
 本项目所有值得记录的改动，每版分「变更」（中文）与「Change」（英文）两节。
 
+## 1.1.6 - 2026-10-14
+
+变更
+- Windows：PowerShell 候选改为按 PATH 解析（`pwsh` → `powershell`），不再写死 `C:\Program Files\PowerShell\7\pwsh.exe`——每台机器安装位置不同，写死路径可能失效。
+- 诊断日志：改为只保留最近几次——每次启动把上一次日志轮转为 `auto-maximize.log.old`，只留「本次 + 最近一次」两份，不再按体积累积。
+- 新增 Windows 回归测试（候选列表无写死路径、ShowWindow 脚本形态、日志轮转）。
+
+Change
+- Windows: resolve PowerShell via PATH (`pwsh` → `powershell`) instead of the hardcoded
+  `C:\Program Files\PowerShell\7\pwsh.exe` — install locations differ per machine, a fixed
+  path can silently fail.
+- Diagnostic log: keeps only the recent runs — each startup rotates the previous log to
+  `auto-maximize.log.old`, retaining just "this run + the previous one" instead of growing
+  by size.
+- New Windows regression tests (PATH-based candidates, ShowWindow script shape, log rotation).
+
 ## 1.1.5 - 2026-10-14
 
 变更

@@ -13,7 +13,7 @@ call `BrowserWindow.maximize()` — instead it uses per-platform OS-level maximi
 
 | Platform | Strategy | Dependency | Notes |
 |---|---|---|---|
-| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** fallback | Falls back to 5.1 (always present on Windows) automatically; no install needed. The `Add-Type` script works on both. Direct Win32 API call — no extra permission required. |
+| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** fallback | Falls back to 5.1 (always present on Windows) automatically; no install needed. PowerShell is resolved via PATH, no hardcoded install path. The `Add-Type` script works on both. Direct Win32 API call — no extra permission required. |
 | macOS | Resize the window to the main screen's visible frame (`NSScreen.visibleFrame` — i.e. "send the window a maximize instruction"); if that fails, click the green `AXZoomButton` as a remedy | `osascript` (built-in) | Requires Accessibility permission for the caller; a grant guide is logged when missing. Override the app name with `processName`. |
 | Linux | `wmctrl` → `xdotool` set `_NET_WM_STATE_MAXIMIZED` | usually **not preinstalled** | Best-effort; skips silently if both are missing. |
 
@@ -97,8 +97,9 @@ display name can differ from its executable's basename.
 **Diagnostic log**: since 1.1.2 every step is appended to `~/.dsh/auto-maximize.log`
 (Windows: `%USERPROFILE%\.dsh\auto-maximize.log`). When maximize "doesn't work", open this
 file and you will immediately see the `osascript` result: `perm:` (missing permission) /
-`nowindow:` (window not found) / `maximized-bounds` (success). Disable it with
-`logFile: false`, or delete the file to clear it.
+`nowindow:` (window not found) / `maximized-bounds` (success). Each startup rotates the
+previous log to `auto-maximize.log.old`, keeping only this run and the previous one. Disable
+it with `logFile: false`, or delete the file to clear it.
 
 > By contrast, **Windows needs no extra permission**: `ShowWindow(hwnd, SW_MAXIMIZE)` is a
 > direct Win32 API call (not simulated clicks) and needs no elevation for the user's own window.

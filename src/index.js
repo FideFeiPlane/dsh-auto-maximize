@@ -5,7 +5,7 @@
  * 插件运行在 DSH 的 host 进程里（由持有窗口的 Electron 主进程拉起），因此永远无法直接调用
  * BrowserWindow.maximize()（host 是纯 Node 进程，ELECTRON_RUN_AS_NODE=1）。改为按平台选择策略：
  *
- *   win32  1. pwsh 7（配置或自动探测）
+ *   win32  1. pwsh 7（按 PATH 解析）
  *          2. Windows PowerShell 5.1（powershell.exe，Windows 自带）
  *          → 对 Electron 主进程拥有的窗口调用 Win32 ShowWindow(hwnd, SW_MAXIMIZE)
  *            （通过 host 的父进程 PID / exe 路径定位）。
@@ -39,9 +39,25 @@ export const name = 'auto-maximize';
 //   - macOS:   ~/.dsh/auto-maximize.log          （即 /Users/<you>/.dsh/…）
 //   - Windows: %USERPROFILE%\.dsh\auto-maximize.log
 // 可通过 `logFile` 配置：false 关闭文件日志；字符串改路径；删除文件即可清空。
+// 保留策略：只记「最近几次」——每次模块加载（即每次 DSH 启动）先把上一次的日志轮转为
+// <log>.old，再开始写本次，因此始终只保留「本次 + 最近一次」两份，文件不会无限累积。
 const DEFAULT_LOG_FILE = path.join(os.homedir(), '.dsh', 'auto-maximize.log');
+const LOG_OLD_SUFFIX = '.old';
 let LOG_PATH = DEFAULT_LOG_FILE;
 let LOG_ENABLED = true;
+
+function rotateLogFile() {
+  try {
+    if (fs.existsSync(LOG_PATH)) {
+      const oldPath = `${LOG_PATH}${LOG_OLD_SUFFIX}`;
+      try { fs.rmSync(oldPath, { force: true }); } catch { /* 旧的 .old 删除失败也继续 */ }
+      fs.renameSync(LOG_PATH, oldPath);
+    }
+  } catch {
+    /* 日志文件不可访问时忽略，继续本次运行 */
+  }
+}
+rotateLogFile();
 
 function logLine(...args) {
   if (!LOG_ENABLED) return;
@@ -59,6 +75,7 @@ function configureLogging(logFile) {
   } else if (typeof logFile === 'string' && logFile.length > 0) {
     LOG_PATH = logFile;
     LOG_ENABLED = true;
+    rotateLogFile();
   }
 }
 
@@ -224,10 +241,10 @@ async function maximizeWindows(ctx, options) {
     .replace('{TIMEOUT_MS}', String(options.timeoutMs));
   logLine(`maximizeWindows: start (hostPid=${process.pid}, exePath=${exePath}, timeoutMs=${options.timeoutMs})`);
 
-  // PowerShell 候选可执行文件，第一个成功的胜出：
-  // 配置的 pwsh 路径 → PATH 上的 pwsh 7 → Windows PowerShell 5.1（Windows 自带）。
+  // PowerShell 候选可执行文件，按 PATH 解析、第一个成功的胜出
+  // （每台机器安装位置不同，不写死绝对路径）：
+  // pwsh 7 → Windows PowerShell 5.1（powershell.exe 位于 System32，恒在 PATH）。
   const candidates = [
-    'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
     'pwsh',
     'powershell',
   ];
