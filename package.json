@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-maximize",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Automatically maximizes the DeepSeek Harness desktop window on startup (equivalent to clicking the maximize button). · DSH 桌面版启动时自动最大化主窗口（等价于手动点一次最大化）。",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,8 @@
     "src",
     "cordis.patch.yml",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "test": "node --test",

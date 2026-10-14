@@ -44,14 +44,28 @@ export const name = 'auto-maximize';
 // a run:
 //   - macOS:   ~/.dsh/auto-maximize.log          (i.e. /Users/<you>/.dsh/…)
 //   - Windows: %USERPROFILE%\.dsh\auto-maximize.log
-const LOG_FILE = path.join(os.homedir(), '.dsh', 'auto-maximize.log');
+// Configurable via the `logFile` option: false disables it, a string changes
+// the path. Deleting the file clears it.
+const DEFAULT_LOG_FILE = path.join(os.homedir(), '.dsh', 'auto-maximize.log');
+let LOG_PATH = DEFAULT_LOG_FILE;
+let LOG_ENABLED = true;
 
 function logLine(...args) {
+  if (!LOG_ENABLED) return;
   try {
     const line = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
-    fs.appendFileSync(LOG_FILE, line);
+    fs.appendFileSync(LOG_PATH, line);
   } catch {
     /* logging must never break the plugin */
+  }
+}
+
+function configureLogging(logFile) {
+  if (logFile === false) {
+    LOG_ENABLED = false;
+  } else if (typeof logFile === 'string' && logFile.length > 0) {
+    LOG_PATH = logFile;
+    LOG_ENABLED = true;
   }
 }
 
@@ -62,12 +76,15 @@ try {
 } catch {
   /* noop */
 }
-logLine(`dsh-auto-maximize: module loaded (version=${PKG_VERSION}, platform=${process.platform}, pid=${process.pid}, log=${LOG_FILE})`);
+logLine(`dsh-auto-maximize: module loaded (version=${PKG_VERSION}, platform=${process.platform}, pid=${process.pid}, log=${LOG_PATH})`);
 
 const DEFAULTS = {
   enabled: true,
   timeoutMs: 20000,
   processName: undefined,
+  // undefined → ~/.dsh/auto-maximize.log; false → disable file logging;
+  // string → write to that path instead.
+  logFile: undefined,
 };
 
 const WIN32_SCRIPT = `
@@ -311,6 +328,7 @@ async function maximizeLinux(ctx, options) {
 
 export function apply(ctx, config = {}) {
   const options = { ...DEFAULTS, ...(config ?? {}) };
+  configureLogging(options.logFile);
   logLine(`apply: called, config=${JSON.stringify(config ?? {})} options=${JSON.stringify(options)}`);
   if (options.enabled === false) {
     ctx.logger.info('dsh-auto-maximize: disabled by config');

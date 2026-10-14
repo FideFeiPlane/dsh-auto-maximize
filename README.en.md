@@ -13,8 +13,8 @@ call `BrowserWindow.maximize()` — instead it uses per-platform OS-level maximi
 
 | Platform | Strategy | Dependency | Notes |
 |---|---|---|---|
-| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** fallback | Falls back to 5.1 (always present on Windows) automatically; no install needed. The `Add-Type` script works on both. |
-| macOS | Click the green `AXZoomButton`; if that fails, set the window bounds to the main screen's visible frame (`NSScreen.visibleFrame`) | `osascript` (built-in) | Requires Accessibility permission for the caller; a grant guide is logged when missing. Override the app name with `processName`. |
+| Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** fallback | Falls back to 5.1 (always present on Windows) automatically; no install needed. The `Add-Type` script works on both. Direct Win32 API call — no extra permission required. |
+| macOS | Resize the window to the main screen's visible frame (`NSScreen.visibleFrame` — i.e. "send the window a maximize instruction"); if that fails, click the green `AXZoomButton` as a remedy | `osascript` (built-in) | Requires Accessibility permission for the caller; a grant guide is logged when missing. Override the app name with `processName`. |
 | Linux | `wmctrl` → `xdotool` set `_NET_WM_STATE_MAXIMIZED` | usually **not preinstalled** | Best-effort; skips silently if both are missing. |
 
 Window lookup (Windows): prefer the host's parent PID (the Electron main process) with a matching
@@ -68,6 +68,7 @@ Options:
 | `enabled` | boolean | `true` | `false` disables the plugin entirely |
 | `timeoutMs` | number | `20000` | max time to keep looking for the window (ms) |
 | `processName` | string | executable basename | process/window name to match on macOS/Linux |
+| `logFile` | boolean \| string | `~/.dsh/auto-maximize.log` | diagnostic log: `false` disables file logging; a string relocates it; delete the file to clear it |
 
 ## macOS: Accessibility permission required
 
@@ -79,8 +80,28 @@ On macOS, controlling another app's windows via `osascript` (System Events) requ
 2. Enable **DeepSeek Harness** (and the terminal/launcher that hosts it, if any).
 3. Restart DeepSeek Harness (the grant does not affect already-running processes).
 
+> ⚠️ **Note: the "instruction form" also needs the permission.** Whether the plugin resizes
+> the window directly (`set position/size` — "send the window a maximize instruction") or
+> clicks `AXZoomButton`, **both go through the same macOS Accessibility API and both need the
+> Accessibility grant**. Why: the plugin runs in the host (an external Node process), and the
+> only way it can move another process's window is that API — the system's gate is on the API
+> itself, not on process identity. Even though `osascript` is DSH's own child process, TCC
+> attributes the grant to the DSH app (so enabling DeepSeek Harness covers it), but it does
+> not waive the grant. The only permission-free route is DSH maximizing its own window inside
+> its own process (a startup flag / host→main IPC calling `BrowserWindow.maximize()`) — that
+> needs a DSH-provided channel, which an external plugin cannot offer. **Keep the grant.**
+
 If it still does not work, set `processName` to the real process name — a packaged app's
 display name can differ from its executable's basename.
+
+**Diagnostic log**: since 1.1.2 every step is appended to `~/.dsh/auto-maximize.log`
+(Windows: `%USERPROFILE%\.dsh\auto-maximize.log`). When maximize "doesn't work", open this
+file and you will immediately see the `osascript` result: `perm:` (missing permission) /
+`nowindow:` (window not found) / `maximized-bounds` (success). Disable it with
+`logFile: false`, or delete the file to clear it.
+
+> By contrast, **Windows needs no extra permission**: `ShowWindow(hwnd, SW_MAXIMIZE)` is a
+> direct Win32 API call (not simulated clicks) and needs no elevation for the user's own window.
 
 ## Uninstall
 

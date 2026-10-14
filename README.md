@@ -13,7 +13,7 @@ DeepSeek Harness 桌面版插件：**打开时自动最大化主窗口**（等�
 | 平台 | 策略 | 依赖 | 备注 |
 |---|---|---|---|
 | Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** 自动回退 | pwsh 7 缺失时自动用 5.1（Windows 自带）；无需额外安装。5.1 的 `Add-Type` 内置编译器，脚本两版通用 |
-| macOS | 点击窗口绿色 `AXZoomButton`；失败则回退为把窗口设为主屏可视区大小（`NSScreen.visibleFrame`） | `osascript`（系统自带） | 需要「辅助功能/Accessibility」授权，未授权会给出指引日志；`processName` 可覆盖应用名 |
+| macOS | 把窗口设为主屏可视区大小（`NSScreen.visibleFrame`，即「向窗口发送最大化指令」）；该调用失败时再点击绿色 `AXZoomButton` 作为补救 | `osascript`（系统自带） | 需要「辅助功能/Accessibility」授权，未授权会给出指引日志；`processName` 可覆盖应用名 |
 | Linux | `wmctrl` → `xdotool` 设置 `_NET_WM_STATE_MAXIMIZED` | 通常**未预装**，需自行安装 | 尽力而为；两者都缺则跳过 |
 
 窗口定位（Windows）：优先取 host 进程的父进程 PID（即 Electron 主进程）且可执行文件路径一致，
@@ -65,18 +65,36 @@ dsh plugin --profile desktop add dsh-auto-maximize
 | `enabled` | boolean | `true` | `false` 时整个插件不做事 |
 | `timeoutMs` | number | `20000` | 启动后持续寻找窗口的最长时间（毫秒） |
 | `processName` | string | 可执行文件名 | macOS/Linux 定位窗口用的进程/窗口标题名 |
+| `logFile` | boolean \| string | `~/.dsh/auto-maximize.log` | 诊断日志：`false` 关闭文件日志；字符串指定自定义路径；删除文件即清空 |
 
 ## macOS：需要「辅助功能」授权
 
 macOS 出于安全限制，用 `osascript`（System Events）控制其他 App 的窗口必须先获得
-**「辅助功能 / Accessibility」**授权。插件未获授权时会在 host 日志输出指引（关键字
-`dsh-auto-maximize`），按以下步骤授权后重启即可：
+**「辅助功能 / Accessibility」**授权。
+
+> ⚠️ **注意事项：指令形式同样需要授权。** 插件把窗口直接设为 `set position/size`（「向窗口发送
+> 最大化指令」）还是点击 `AXZoomButton`，**两种方式都走同一套 macOS Accessibility API，都需要
+> 辅助功能授权**。原因：插件跑在 host（外部 Node 进程）里，要挪动另一个进程的窗口只能走该 API，
+> 系统的闸门拦的是 API 本身、不是进程身份——哪怕 `osascript` 是 DSH 自己的子进程也一样（TCC 会把
+> 授权追溯归属到 DSH 应用，所以勾选 DeepSeek Harness 即可覆盖它，但这并不豁免授权）。唯一能免授权的
+> 路径是让 DSH 在自身进程内最大化自己的窗口（如启动参数 / host→main 的 IPC 调
+> `BrowserWindow.maximize()`），那需要 DSH 本体提供通道，插件作为外部方做不到。**因此请保留授权**。
+
+插件未获授权时会在 host 日志输出指引（关键字 `dsh-auto-maximize`），按以下步骤授权后重启即可：
 
 1. 打开 **系统设置 → 隐私与安全性 → 辅助功能**；
 2. 勾选 **DeepSeek Harness**（以及承载/启动它的终端或启动器，如有）；
 3. 重启 DeepSeek Harness（授权对已运行的进程不生效）。
 
 仍无效时，可用 `processName` 指定实际的进程名——打包后应用显示名可能与可执行文件名不同。
+
+**诊断日志**：从 1.1.2 起，插件每一步都会追加写入 `~/.dsh/auto-maximize.log`
+（Windows：`%USERPROFILE%\.dsh\auto-maximize.log`）。排查「没生效」时直接看这个文件，能立刻看到
+`osascript` 返回的 `perm:`（缺授权）/ `nowindow:`（没找到窗口）/ `maximized-bounds`（成功）等结果。
+不需要日志时用 `logFile: false` 关闭，或直接删除该文件清空。
+
+> 对比：**Windows 端不需要任何额外权限**——`ShowWindow(hwnd, SW_MAXIMIZE)` 是直接 Win32 API
+> 调用（非模拟点击），对同一用户的窗口无需提权。
 
 ## 卸载
 
