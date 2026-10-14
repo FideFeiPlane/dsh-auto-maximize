@@ -11,9 +11,10 @@
  *          2. Windows PowerShell 5.1 (powershell.exe, always present on Windows)
  *          → Win32 ShowWindow(hwnd, SW_MAXIMIZE) on the window owned by the
  *            Electron main process (found via the host's parent PID / exe path).
- *   darwin osascript → click the front window's AXZoomButton (the green button,
- *          i.e. exactly the "maximize" button); if that fails, set the window
- *          bounds to the main screen's visible frame (AppleScriptObjC NSScreen).
+ *   darwin osascript → send the maximize instruction to the front window by
+ *          setting its position/size to the main screen's visible frame
+ *          (AppleScriptObjC NSScreen; the broadly-supported system window API);
+ *          if that fails, click the AXZoomButton (the green button) as a remedy.
  *          Requires the caller to have Accessibility (System Events) permission;
  *          a step-by-step grant guide is logged when the permission is missing.
  *   linux  wmctrl, then xdotool → set _NET_WM_STATE_MAXIMIZED on the app window
@@ -129,32 +130,33 @@ tell application "System Events"
     end if
     return "nowindow: " & errMsg
   end try
-  -- True maximize: click the green zoom button (the "maximize" command).
+  -- Primary: send the maximize instruction directly — resize the window to the
+  -- main screen's visible frame (set position/size is the broadly-supported
+  -- system window API, independent of the zoom button).
   try
-    click (first button of win whose subrole is "AXZoomButton")
-    return "maximized"
-  on error clickErr
-    if (clickErr contains "assistive access") or (clickErr contains "not authorized") or (clickErr contains "-1719") or (clickErr contains "-25211") or (clickErr contains "-1743") or (clickErr contains "辅助") then
-      return "perm: " & clickErr
+    set scr to current application's NSScreen's mainScreen()
+    set fullFrame to scr's frame()
+    set visFrame to scr's visibleFrame()
+    -- An NSRect bridges to AppleScript as {{x, y}, {w, h}}.
+    set screenH to item 2 of item 2 of fullFrame
+    set visX to item 1 of item 1 of visFrame
+    set visY to item 2 of item 1 of visFrame
+    set visW to item 1 of item 2 of visFrame
+    set visH to item 2 of item 2 of visFrame
+    set position of win to {visX, screenH - (visY + visH)}
+    set size of win to {visW, visH}
+    return "maximized-bounds"
+  on error errMsg
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
+      return "perm: " & errMsg
     end if
-    -- Zoom button unavailable: send the maximize instruction directly by
-    -- resizing the window to the main screen's visible frame.
+    -- Remedy: click the green zoom button (the "maximize" command).
     try
-      set scr to current application's NSScreen's mainScreen()
-      set fullFrame to scr's frame()
-      set visFrame to scr's visibleFrame()
-      -- An NSRect bridges to AppleScript as {{x, y}, {w, h}}.
-      set screenH to item 2 of item 2 of fullFrame
-      set visX to item 1 of item 1 of visFrame
-      set visY to item 2 of item 1 of visFrame
-      set visW to item 1 of item 2 of visFrame
-      set visH to item 2 of item 2 of visFrame
-      set position of win to {visX, screenH - (visY + visH)}
-      set size of win to {visW, visH}
-      return "maximized-bounds (zoom click failed: " & clickErr & ")"
-    on error errMsg
-      if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
-        return "perm: " & errMsg
+      click (first button of win whose subrole is "AXZoomButton")
+      return "maximized (zoom click)"
+    on error clickErr
+      if (clickErr contains "assistive access") or (clickErr contains "not authorized") or (clickErr contains "-1719") or (clickErr contains "-25211") or (clickErr contains "-1743") or (clickErr contains "辅助") then
+        return "perm: " & clickErr
       end if
       return "fail: " & errMsg & " | click: " & clickErr & " | win: " & (name of win)
     end try

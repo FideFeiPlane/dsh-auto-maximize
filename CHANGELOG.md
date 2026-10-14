@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.4] - 2026-10-14
+
+### Changed
+- macOS: make "send the maximize instruction" the primary path — resize the
+  front window to the main screen's visible frame (`set position/size`, the
+  broadly-supported system window API, no dependence on the zoom button). The
+  `AXZoomButton` click is now only a remedy if the geometry call fails.
+
 ## [1.1.3] - 2026-10-14
 
 ### Fixed
@@ -61,6 +69,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Config: `enabled`, `timeoutMs`, `processName`.
 - Smoke tests (node:test), publish-ready npm package (`dsh.bundle` manifest).
 
+[1.1.4]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.3]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.2]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.1]: https://gitee.com/FideFei/dsh-auto-maximize
