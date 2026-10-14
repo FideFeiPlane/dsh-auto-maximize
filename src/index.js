@@ -30,9 +30,38 @@
  */
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
 export const name = 'auto-maximize';
+
+// ---- Self-contained file logger -----------------------------------------
+// The host's ctx.logger output may not land in a discoverable file, so the
+// plugin also appends every step to a fixed file that is trivial to find after
+// a run:
+//   - macOS:   ~/.dsh/auto-maximize.log          (i.e. /Users/<you>/.dsh/…)
+//   - Windows: %USERPROFILE%\.dsh\auto-maximize.log
+const LOG_FILE = path.join(os.homedir(), '.dsh', 'auto-maximize.log');
+
+function logLine(...args) {
+  try {
+    const line = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+    fs.appendFileSync(LOG_FILE, line);
+  } catch {
+    /* logging must never break the plugin */
+  }
+}
+
+const _require = createRequire(import.meta.url);
+let PKG_VERSION = 'unknown';
+try {
+  PKG_VERSION = _require('../package.json').version ?? 'unknown';
+} catch {
+  /* noop */
+}
+logLine(`dsh-auto-maximize: module loaded (version=${PKG_VERSION}, platform=${process.platform}, pid=${process.pid}, log=${LOG_FILE})`);
 
 const DEFAULTS = {
   enabled: true,
@@ -130,12 +159,14 @@ end tell
 `;
 
 function runTool(file, args, { logger, extraTimeoutMs = 5000 }) {
+  logLine(`runTool: spawn ${file} ${JSON.stringify(args)}`);
   return new Promise((resolve) => {
     let child;
     try {
       child = spawn(file, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (error) {
       logger.warn(`dsh-auto-maximize: cannot start ${file}: ${error.message}`);
+      logLine(`runTool: spawn ${file} FAILED: ${error.message}`);
       resolve({ ok: false, output: '' });
       return;
     }
@@ -145,6 +176,7 @@ function runTool(file, args, { logger, extraTimeoutMs = 5000 }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      logLine(`runTool: ${file} done -> code=${result.code ?? '?'}${result.error ? ` err=${result.error.message}` : ''} output=${JSON.stringify(result.output).slice(0, 900)}`);
       resolve(result);
     };
     const timer = setTimeout(() => {
@@ -176,6 +208,7 @@ async function maximizeWindows(ctx, options) {
     .replace('{HOST_PID}', String(process.pid))
     .replace('{EXE_PATH}', exeLiteral)
     .replace('{TIMEOUT_MS}', String(options.timeoutMs));
+  logLine(`maximizeWindows: start (hostPid=${process.pid}, exePath=${exePath}, timeoutMs=${options.timeoutMs})`);
 
   // Candidate PowerShell executables, first success wins:
   // configured pwsh path → pwsh 7 on PATH → Windows PowerShell 5.1 (always present).
@@ -192,33 +225,39 @@ async function maximizeWindows(ctx, options) {
       '-Command', script,
     ], { logger: ctx.logger, extraTimeoutMs: options.timeoutMs + 10000 });
     if (result.error && result.error.code === 'ENOENT') {
+      logLine(`maximizeWindows: candidate "${candidate}" not installed (ENOENT)`);
       lastError = result.error;
       continue; // this PowerShell is not installed — try the next one
     }
     anyRan = true;
     const line = result.output.trim();
+    logLine(`maximizeWindows: candidate "${candidate}" ran -> code=${result.code ?? '?'} output=${JSON.stringify(line).slice(0, 400)}`);
     if (line) ctx.logger.info(line);
-    if (/maximized/.test(result.output)) return; // success
+    if (/maximized/.test(result.output)) { logLine('maximizeWindows: SUCCESS'); return; } // success
     // A PowerShell ran but found no window; lower versions won't do any better.
     lastError = new Error(result.output.trim() || 'no window found');
     break;
   }
   ctx.logger.warn(`dsh-auto-maximize: could not maximize on Windows (${lastError ? lastError.message : 'unknown'}, ran=${anyRan})`);
+  logLine(`maximizeWindows: FAILED (${lastError ? lastError.message : 'unknown'}, ran=${anyRan})`);
 }
 
 async function maximizeDarwin(ctx, options) {
   const procName = appProcessName(options);
   const script = DARWIN_SCRIPT.replaceAll('{PROC}', procName);
+  logLine(`maximizeDarwin: start (procName="${procName}", timeoutMs=${options.timeoutMs})`);
   let sawPermission = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     const result = await runTool('osascript', ['-e', script], { logger: ctx.logger, extraTimeoutMs: options.timeoutMs + 10000 });
     const line = result.output.trim();
+    logLine(`maximizeDarwin: attempt ${attempt} line=${JSON.stringify(line)}`);
     if (line) ctx.logger.info(line);
-    if (/maximized/.test(line)) return; // zoom click or bounds fallback succeeded
+    if (/maximized/.test(line)) { logLine('maximizeDarwin: SUCCESS'); return; } // zoom click or bounds fallback succeeded
     if (/^perm:/i.test(line)) { sawPermission = true; break; }
     await sleep(1000);
   }
   if (sawPermission) {
+    logLine(`maximizeDarwin: PERMISSION MISSING (procName="${procName}")`);
     ctx.logger.warn(
       'dsh-auto-maximize: macOS needs Accessibility permission to control windows via System Events. ' +
       'Open System Settings → Privacy & Security → Accessibility, enable it for ' +
@@ -228,18 +267,22 @@ async function maximizeDarwin(ctx, options) {
     return;
   }
   ctx.logger.warn(`dsh-auto-maximize: could not maximize on macOS (osascript returned no zoom/bounds for "${procName}")`);
+  logLine(`maximizeDarwin: FAILED (osascript returned no zoom/bounds for "${procName}")`);
 }
 
 async function maximizeLinux(ctx, options) {
   const procName = appProcessName(options);
+  logLine(`maximizeLinux: start (procName="${procName}")`);
   for (let attempt = 0; attempt < 3; attempt++) {
     // wmctrl: match window title, add maximized states.
     const wm = await runTool('wmctrl', ['-r', procName, '-b', 'add,maximized_vert,maximized_horz'], { logger: ctx.logger });
     if (wm.error && wm.error.code === 'ENOENT') {
+      logLine('maximizeLinux: wmctrl not installed');
       // xdotool fallback: find window id by name, then set maximized states.
       const found = await runTool('xdotool', ['search', '--name', procName], { logger: ctx.logger });
       if (found.error && found.error.code === 'ENOENT') {
         ctx.logger.warn('dsh-auto-maximize: neither wmctrl nor xdotool is installed; cannot maximize on Linux');
+        logLine('maximizeLinux: FAILED (neither wmctrl nor xdotool installed)');
         return;
       }
       const ids = found.output.trim().split(/\s+/).filter(Boolean);
@@ -248,31 +291,41 @@ async function maximizeLinux(ctx, options) {
         const set = await runTool('xdotool', ['windowstate', '--add', 'MAXIMIZED_VERT', 'MAXIMIZED_HORZ', id], { logger: ctx.logger });
         if (!set.error && set.code === 0) { done = true; break; }
       }
-      if (done) { ctx.logger.info(`dsh-auto-maximize: maximized (xdotool, ${ids.length} window(s))`); return; }
+      if (done) { ctx.logger.info(`dsh-auto-maximize: maximized (xdotool, ${ids.length} window(s))`); logLine(`maximizeLinux: SUCCESS (xdotool, ${ids.length} window(s))`); return; }
     } else if (wm.code === 0) {
       ctx.logger.info('dsh-auto-maximize: maximized (wmctrl)');
+      logLine('maximizeLinux: SUCCESS (wmctrl)');
       return;
     }
     await sleep(1000);
   }
   ctx.logger.warn(`dsh-auto-maximize: could not maximize on Linux (window "${procName}" not matched)`);
+  logLine(`maximizeLinux: FAILED (window "${procName}" not matched)`);
 }
 
 export function apply(ctx, config = {}) {
   const options = { ...DEFAULTS, ...(config ?? {}) };
+  logLine(`apply: called, config=${JSON.stringify(config ?? {})} options=${JSON.stringify(options)}`);
   if (options.enabled === false) {
     ctx.logger.info('dsh-auto-maximize: disabled by config');
+    logLine('apply: disabled by config, returning');
     return;
   }
 
   ctx.effect(async () => {
+    logLine(`apply: effect running (platform=${process.platform}, cwd=${process.cwd()}, execPath=${process.execPath})`);
     try {
       if (process.platform === 'win32') await maximizeWindows(ctx, options);
       else if (process.platform === 'darwin') await maximizeDarwin(ctx, options);
       else if (process.platform === 'linux') await maximizeLinux(ctx, options);
-      else ctx.logger.info(`dsh-auto-maximize: unsupported platform "${process.platform}", nothing to do`);
+      else {
+        ctx.logger.info(`dsh-auto-maximize: unsupported platform "${process.platform}", nothing to do`);
+        logLine(`apply: unsupported platform "${process.platform}"`);
+      }
     } catch (error) {
       ctx.logger.warn(`dsh-auto-maximize: ${error.message}`);
+      logLine(`apply: effect threw: ${error.stack ?? error.message}`);
     }
+    logLine('apply: effect finished');
   }, 'dsh-auto-maximize');
 }

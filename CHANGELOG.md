@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.2] - 2026-10-14
+
+### Added
+- Self-contained file logger: every step (module load, `apply()`, each spawned
+  tool, per-attempt osascript/PowerShell output, final outcome) is appended to
+  `~/.dsh/auto-maximize.log` (macOS: `/Users/<you>/.dsh/…`, Windows:
+  `%USERPROFILE%\.dsh\…`). The host's `ctx.logger` output may not land in a
+  discoverable file, so this gives an always-findable trace for diagnosing why
+  startup maximization does not take effect on a machine.
+
 ## [1.1.1] - 2026-10-14
 
 ### Fixed
@@ -37,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Config: `enabled`, `timeoutMs`, `processName`.
 - Smoke tests (node:test), publish-ready npm package (`dsh.bundle` manifest).
 
+[1.1.2]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.1]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.0]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.0.0]: https://gitee.com/FideFei/dsh-auto-maximize
