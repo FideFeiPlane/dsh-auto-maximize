@@ -129,31 +129,35 @@ tell application "System Events"
     end if
     return "nowindow: " & errMsg
   end try
-  -- Primary: click the green zoom button (exactly the "maximize" button).
+  -- True maximize: click the green zoom button (the "maximize" command).
   try
     click (first button of win whose subrole is "AXZoomButton")
     return "maximized"
-  on error errMsg
-    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
-      return "perm: " & errMsg
+  on error clickErr
+    if (clickErr contains "assistive access") or (clickErr contains "not authorized") or (clickErr contains "-1719") or (clickErr contains "-25211") or (clickErr contains "-1743") or (clickErr contains "辅助") then
+      return "perm: " & clickErr
     end if
-    -- Non-permission failure: fall through to the geometry fallback below.
-  end try
-  -- Fallback: force maximize geometry to the main screen's visible frame.
-  try
-    set scr to current application's NSScreen's mainScreen()
-    set fullFrame to scr's frame()
-    set visFrame to scr's visibleFrame()
-    set screenH to item 4 of fullFrame
-    set visX to item 1 of visFrame
-    set visY to item 2 of visFrame
-    set visW to item 3 of visFrame
-    set visH to item 4 of visFrame
-    set position of win to {visX, screenH - (visY + visH)}
-    set size of win to {visW, visH}
-    return "maximized-bounds"
-  on error errMsg
-    return "fail: " & errMsg
+    -- Zoom button unavailable: send the maximize instruction directly by
+    -- resizing the window to the main screen's visible frame.
+    try
+      set scr to current application's NSScreen's mainScreen()
+      set fullFrame to scr's frame()
+      set visFrame to scr's visibleFrame()
+      -- An NSRect bridges to AppleScript as {{x, y}, {w, h}}.
+      set screenH to item 2 of item 2 of fullFrame
+      set visX to item 1 of item 1 of visFrame
+      set visY to item 2 of item 1 of visFrame
+      set visW to item 1 of item 2 of visFrame
+      set visH to item 2 of item 2 of visFrame
+      set position of win to {visX, screenH - (visY + visH)}
+      set size of win to {visW, visH}
+      return "maximized-bounds (zoom click failed: " & clickErr & ")"
+    on error errMsg
+      if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
+        return "perm: " & errMsg
+      end if
+      return "fail: " & errMsg & " | click: " & clickErr & " | win: " & (name of win)
+    end try
   end try
 end tell
 `;

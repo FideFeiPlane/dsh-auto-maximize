@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.3] - 2026-10-14
+
+### Fixed
+- macOS: the geometry fallback read the screen frame with `item 4 of fullFrame`,
+  but an `NSRect` bridges to AppleScript as a two-level list `{{x, y}, {w, h}}`,
+  so that always threw "不能获得/Can't get" and the maximize-by-bounds path never
+  ran. Extract the components with the correct `item` paths (`item 2 of item 2`
+  for height, etc.). This is the "send the window a maximize instruction" path
+  (resize to the main screen's visible frame) and no longer depends on the zoom
+  button being clickable.
+- macOS: when the zoom button click fails, the reason is now returned in the
+  output (and logged) instead of being silently swallowed, and the targeted
+  window's title is included in the final failure line for diagnosis.
+
 ## [1.1.2] - 2026-10-14
 
 ### Added
@@ -47,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Config: `enabled`, `timeoutMs`, `processName`.
 - Smoke tests (node:test), publish-ready npm package (`dsh.bundle` manifest).
 
+[1.1.3]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.2]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.1]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.0]: https://gitee.com/FideFei/dsh-auto-maximize
