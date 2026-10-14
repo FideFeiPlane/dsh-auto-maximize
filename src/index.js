@@ -1,0 +1,226 @@
+/**
+ * dsh-auto-maximize — Host-only plugin.
+ *
+ * Maximizes the DeepSeek Harness desktop window once at startup, equivalent to
+ * the user clicking the maximize button. Runs inside the DSH host process
+ * (spawned by the Electron main process that owns the window), so it can never
+ * call BrowserWindow.maximize() directly (the host is a Node process,
+ * ELECTRON_RUN_AS_NODE=1). Instead it picks a per-platform strategy:
+ *
+ *   win32  1. pwsh 7 (configured or auto-detected)
+ *          2. Windows PowerShell 5.1 (powershell.exe, always present on Windows)
+ *          → Win32 ShowWindow(hwnd, SW_MAXIMIZE) on the window owned by the
+ *            Electron main process (found via the host's parent PID / exe path).
+ *   darwin osascript → click the front window's AXZoomButton (the green button),
+ *          requires the terminal/automation host to have Accessibility permission.
+ *   linux  wmctrl, then xdotool → set _NET_WM_STATE_MAXIMIZED on the app window
+ *          (best-effort: these tools are usually not preinstalled).
+ *
+ * All strategies are best-effort and fail soft: on failure they log a warning
+ * and never crash the host.
+ *
+ * Configuration (optional, from the profile's cordis.patch.yml row):
+ *   - enabled:     false disables the plugin entirely (default true)
+ *   - timeoutMs:   how long to keep looking for the window (default 20000)
+ *   - processName: app/process name used to locate the window on macOS/Linux
+ *                  (default: derived from the running executable)
+ */
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+
+export const name = 'auto-maximize';
+
+const DEFAULTS = {
+  enabled: true,
+  timeoutMs: 20000,
+  processName: undefined,
+};
+
+const WIN32_SCRIPT = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class DshAutoMaximize {
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+'@
+$hostPid = {HOST_PID}
+$exePath = '{EXE_PATH}'
+$timeoutMs = {TIMEOUT_MS}
+$deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+$hwnd = [IntPtr]::Zero
+while ([DateTime]::UtcNow -lt $deadline) {
+  # Preferred: the host's parent is the Electron main process that owns the window.
+  $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$hostPid" -ErrorAction SilentlyContinue).ParentProcessId
+  if ($parent) {
+    $cand = Get-Process -Id $parent -ErrorAction SilentlyContinue
+    if ($cand -and $cand.Path -eq $exePath -and $cand.MainWindowHandle -ne [IntPtr]::Zero) {
+      $hwnd = $cand.MainWindowHandle
+      break
+    }
+  }
+  # Fallback: any window owned by this executable.
+  $scan = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exePath -and $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+  if ($scan) {
+    $hwnd = $scan.MainWindowHandle
+    break
+  }
+  Start-Sleep -Milliseconds 500
+}
+if ($hwnd -ne [IntPtr]::Zero) {
+  [DshAutoMaximize]::ShowWindow($hwnd, 3) | Out-Null
+  Write-Output "dsh-auto-maximize: maximized (hwnd=$hwnd)"
+} else {
+  Write-Output 'dsh-auto-maximize: desktop window not found within timeout'
+}
+`;
+
+function runTool(file, args, { logger, extraTimeoutMs = 5000 }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(file, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      logger.warn(`dsh-auto-maximize: cannot start ${file}: ${error.message}`);
+      resolve({ ok: false, output: '' });
+      return;
+    }
+    let output = '';
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* already gone */ }
+      finish({ ok: false, output });
+    }, extraTimeoutMs);
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { output += chunk; });
+    child.on('error', (error) => {
+      finish({ ok: false, output, error });
+    });
+    child.on('close', (code) => {
+      finish({ ok: true, output, code });
+    });
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function appProcessName(options) {
+  if (options.processName) return options.processName;
+  return path.basename(process.execPath).replace(/\.exe$/i, '');
+}
+
+async function maximizeWindows(ctx, options) {
+  const exePath = process.execPath;
+  const exeLiteral = String(exePath).replace(/'/g, "''");
+  const script = WIN32_SCRIPT
+    .replace('{HOST_PID}', String(process.pid))
+    .replace('{EXE_PATH}', exeLiteral)
+    .replace('{TIMEOUT_MS}', String(options.timeoutMs));
+
+  // Candidate PowerShell executables, first success wins:
+  // configured pwsh path → pwsh 7 on PATH → Windows PowerShell 5.1 (always present).
+  const candidates = [
+    'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    'pwsh',
+    'powershell',
+  ];
+  let lastError = null;
+  let anyRan = false;
+  for (const candidate of candidates) {
+    const result = await runTool(candidate, [
+      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+      '-Command', script,
+    ], { logger: ctx.logger, extraTimeoutMs: options.timeoutMs + 10000 });
+    if (result.error && result.error.code === 'ENOENT') {
+      lastError = result.error;
+      continue; // this PowerShell is not installed — try the next one
+    }
+    anyRan = true;
+    const line = result.output.trim();
+    if (line) ctx.logger.info(line);
+    if (/maximized/.test(result.output)) return; // success
+    // A PowerShell ran but found no window; lower versions won't do any better.
+    lastError = new Error(result.output.trim() || 'no window found');
+    break;
+  }
+  ctx.logger.warn(`dsh-auto-maximize: could not maximize on Windows (${lastError ? lastError.message : 'unknown'}, ran=${anyRan})`);
+}
+
+async function maximizeDarwin(ctx, options) {
+  const procName = appProcessName(options);
+  const script = [
+    `tell application "System Events"`,
+    `  try`,
+    `    set frontmost of process "${procName}" to true`,
+    `    click (first button of front window of process "${procName}" whose subrole is "AXZoomButton")`,
+    `    return "maximized"`,
+    `  on error errMsg`,
+    `    return "failed: " & errMsg`,
+    `  end try`,
+    `end tell`,
+  ].join('\n');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await runTool('osascript', ['-e', script], { logger: ctx.logger });
+    const line = result.output.trim();
+    if (line) ctx.logger.info(line);
+    if (/maximized/.test(line)) return;
+    await sleep(1000);
+  }
+  ctx.logger.warn(`dsh-auto-maximize: could not maximize on macOS (osascript returned no zoom for "${procName}"; check Accessibility permission)`);
+}
+
+async function maximizeLinux(ctx, options) {
+  const procName = appProcessName(options);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // wmctrl: match window title, add maximized states.
+    const wm = await runTool('wmctrl', ['-r', procName, '-b', 'add,maximized_vert,maximized_horz'], { logger: ctx.logger });
+    if (wm.error && wm.error.code === 'ENOENT') {
+      // xdotool fallback: find window id by name, then set maximized states.
+      const found = await runTool('xdotool', ['search', '--name', procName], { logger: ctx.logger });
+      if (found.error && found.error.code === 'ENOENT') {
+        ctx.logger.warn('dsh-auto-maximize: neither wmctrl nor xdotool is installed; cannot maximize on Linux');
+        return;
+      }
+      const ids = found.output.trim().split(/\s+/).filter(Boolean);
+      let done = false;
+      for (const id of ids) {
+        const set = await runTool('xdotool', ['windowstate', '--add', 'MAXIMIZED_VERT', 'MAXIMIZED_HORZ', id], { logger: ctx.logger });
+        if (!set.error && set.code === 0) { done = true; break; }
+      }
+      if (done) { ctx.logger.info(`dsh-auto-maximize: maximized (xdotool, ${ids.length} window(s))`); return; }
+    } else if (wm.code === 0) {
+      ctx.logger.info('dsh-auto-maximize: maximized (wmctrl)');
+      return;
+    }
+    await sleep(1000);
+  }
+  ctx.logger.warn(`dsh-auto-maximize: could not maximize on Linux (window "${procName}" not matched)`);
+}
+
+export function apply(ctx, config = {}) {
+  const options = { ...DEFAULTS, ...(config ?? {}) };
+  if (options.enabled === false) {
+    ctx.logger.info('dsh-auto-maximize: disabled by config');
+    return;
+  }
+
+  ctx.effect(async () => {
+    try {
+      if (process.platform === 'win32') await maximizeWindows(ctx, options);
+      else if (process.platform === 'darwin') await maximizeDarwin(ctx, options);
+      else if (process.platform === 'linux') await maximizeLinux(ctx, options);
+      else ctx.logger.info(`dsh-auto-maximize: unsupported platform "${process.platform}", nothing to do`);
+    } catch (error) {
+      ctx.logger.warn(`dsh-auto-maximize: ${error.message}`);
+    }
+  }, 'dsh-auto-maximize');
+}

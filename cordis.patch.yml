@@ -1,0 +1,9 @@
+# dsh-auto-maximize bundle patch — inserts the host plugin into the profile.
+# The plugin maximizes the desktop window shortly after the app starts,
+# equivalent to the user clicking the maximize button once.
+- insert:
+    - id: auto-maximize
+      name: dsh-auto-maximize
+      config:
+        enabled: true
+        timeoutMs: 20000
