@@ -87,7 +87,7 @@ tell application "System Events"
   try
     set frontmost of process "{PROC}" to true
   on error errMsg
-    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
       return "perm: " & errMsg
     end if
     return "fail: " & errMsg
@@ -95,7 +95,7 @@ tell application "System Events"
   try
     set win to front window of process "{PROC}"
   on error errMsg
-    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
       return "perm: " & errMsg
     end if
     return "nowindow: " & errMsg
@@ -105,7 +105,7 @@ tell application "System Events"
     click (first button of win whose subrole is "AXZoomButton")
     return "maximized"
   on error errMsg
-    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
       return "perm: " & errMsg
     end if
     -- Non-permission failure: fall through to the geometry fallback below.

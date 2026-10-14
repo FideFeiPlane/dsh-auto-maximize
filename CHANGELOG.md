@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.1] - 2026-10-14
+
+### Fixed
+- macOS: also recognize `-1719` ("assistive access not allowed") and the localized
+  Chinese keyword `辅助` as Accessibility-permission errors, so the grant guide is
+  logged on non-English (e.g. 简体中文) macOS systems instead of a generic failure.
+
 ## [1.1.0] - 2026-10-14
 
 ### Added
@@ -30,5 +37,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Config: `enabled`, `timeoutMs`, `processName`.
 - Smoke tests (node:test), publish-ready npm package (`dsh.bundle` manifest).
 
+[1.1.1]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.1.0]: https://gitee.com/FideFei/dsh-auto-maximize
 [1.0.0]: https://gitee.com/FideFei/dsh-auto-maximize
