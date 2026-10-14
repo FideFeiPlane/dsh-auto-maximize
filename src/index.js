@@ -1,33 +1,28 @@
 /**
- * dsh-auto-maximize — Host-only plugin.
+ * dsh-auto-maximize — Host-only 插件（仅运行在 host 进程）。
  *
- * Maximizes the DeepSeek Harness desktop window once at startup, equivalent to
- * the user clicking the maximize button. Runs inside the DSH host process
- * (spawned by the Electron main process that owns the window), so it can never
- * call BrowserWindow.maximize() directly (the host is a Node process,
- * ELECTRON_RUN_AS_NODE=1). Instead it picks a per-platform strategy:
+ * 在启动时把 DeepSeek Harness 桌面窗口自动最大化一次，等价于用户手动点一次最大化按钮。
+ * 插件运行在 DSH 的 host 进程里（由持有窗口的 Electron 主进程拉起），因此永远无法直接调用
+ * BrowserWindow.maximize()（host 是纯 Node 进程，ELECTRON_RUN_AS_NODE=1）。改为按平台选择策略：
  *
- *   win32  1. pwsh 7 (configured or auto-detected)
- *          2. Windows PowerShell 5.1 (powershell.exe, always present on Windows)
- *          → Win32 ShowWindow(hwnd, SW_MAXIMIZE) on the window owned by the
- *            Electron main process (found via the host's parent PID / exe path).
- *   darwin osascript → send the maximize instruction to the front window by
- *          setting its position/size to the main screen's visible frame
- *          (AppleScriptObjC NSScreen; the broadly-supported system window API);
- *          if that fails, click the AXZoomButton (the green button) as a remedy.
- *          Requires the caller to have Accessibility (System Events) permission;
- *          a step-by-step grant guide is logged when the permission is missing.
- *   linux  wmctrl, then xdotool → set _NET_WM_STATE_MAXIMIZED on the app window
- *          (best-effort: these tools are usually not preinstalled).
+ *   win32  1. pwsh 7（配置或自动探测）
+ *          2. Windows PowerShell 5.1（powershell.exe，Windows 自带）
+ *          → 对 Electron 主进程拥有的窗口调用 Win32 ShowWindow(hwnd, SW_MAXIMIZE)
+ *            （通过 host 的父进程 PID / exe 路径定位）。
+ *   darwin osascript → 向最前端窗口发送最大化指令：把窗口 position/size 设为主屏可视区
+ *          （AppleScriptObjC NSScreen；系统窗口 API，广泛支持）；若失败再点 AXZoomButton
+ *          （绿色按钮）作为补救。需要调用方具备「辅助功能/Accessibility（System Events）」授权，
+ *          缺授权时会输出逐步授权指引日志。
+ *   linux  wmctrl，其次 xdotool → 对应用窗口设置 _NET_WM_STATE_MAXIMIZED
+ *          （尽力而为：这些工具通常未预装）。
  *
- * All strategies are best-effort and fail soft: on failure they log a warning
- * and never crash the host.
+ * 所有策略都是尽力而为、失败即软着陆：失败只记日志，绝不 crash host。
  *
- * Configuration (optional, from the profile's cordis.patch.yml row):
- *   - enabled:     false disables the plugin entirely (default true)
- *   - timeoutMs:   how long to keep looking for the window (default 20000)
- *   - processName: app/process name used to locate the window on macOS/Linux
- *                  (default: derived from the running executable)
+ * 配置（可选，来自 profile 的 cordis.patch.yml 行）：
+ *   - enabled:     false 完全禁用插件（默认 true）
+ *   - timeoutMs:   持续寻找窗口的最长时间（默认 20000 毫秒）
+ *   - processName: macOS/Linux 定位窗口所用的应用/进程名（默认取运行中可执行文件名）
+ *   - logFile:     诊断日志：false 关闭；字符串指定自定义路径（默认 ~/.dsh/auto-maximize.log）
  */
 
 import { spawn } from 'node:child_process';
@@ -38,14 +33,12 @@ import { createRequire } from 'node:module';
 
 export const name = 'auto-maximize';
 
-// ---- Self-contained file logger -----------------------------------------
-// The host's ctx.logger output may not land in a discoverable file, so the
-// plugin also appends every step to a fixed file that is trivial to find after
-// a run:
-//   - macOS:   ~/.dsh/auto-maximize.log          (i.e. /Users/<you>/.dsh/…)
+// ---- 自包含文件日志 -------------------------------------------------------
+// host 的 ctx.logger 输出不一定落在可发现的文件里，因此插件把每一步都追加写入一个固定文件，
+// 运行后很容易找到：
+//   - macOS:   ~/.dsh/auto-maximize.log          （即 /Users/<you>/.dsh/…）
 //   - Windows: %USERPROFILE%\.dsh\auto-maximize.log
-// Configurable via the `logFile` option: false disables it, a string changes
-// the path. Deleting the file clears it.
+// 可通过 `logFile` 配置：false 关闭文件日志；字符串改路径；删除文件即可清空。
 const DEFAULT_LOG_FILE = path.join(os.homedir(), '.dsh', 'auto-maximize.log');
 let LOG_PATH = DEFAULT_LOG_FILE;
 let LOG_ENABLED = true;
@@ -56,7 +49,7 @@ function logLine(...args) {
     const line = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
     fs.appendFileSync(LOG_PATH, line);
   } catch {
-    /* logging must never break the plugin */
+    /* 日志绝不能影响插件运行 */
   }
 }
 
@@ -74,7 +67,7 @@ let PKG_VERSION = 'unknown';
 try {
   PKG_VERSION = _require('../package.json').version ?? 'unknown';
 } catch {
-  /* noop */
+  /* 无操作 */
 }
 logLine(`dsh-auto-maximize: module loaded (version=${PKG_VERSION}, platform=${process.platform}, pid=${process.pid}, log=${LOG_PATH})`);
 
@@ -82,8 +75,7 @@ const DEFAULTS = {
   enabled: true,
   timeoutMs: 20000,
   processName: undefined,
-  // undefined → ~/.dsh/auto-maximize.log; false → disable file logging;
-  // string → write to that path instead.
+  // undefined → 默认 ~/.dsh/auto-maximize.log；false → 关闭文件日志；字符串 → 写到此路径。
   logFile: undefined,
 };
 
@@ -103,7 +95,7 @@ $timeoutMs = {TIMEOUT_MS}
 $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
 $hwnd = [IntPtr]::Zero
 while ([DateTime]::UtcNow -lt $deadline) {
-  # Preferred: the host's parent is the Electron main process that owns the window.
+  # 优先：host 的父进程就是持有窗口的 Electron 主进程。
   $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$hostPid" -ErrorAction SilentlyContinue).ParentProcessId
   if ($parent) {
     $cand = Get-Process -Id $parent -ErrorAction SilentlyContinue
@@ -112,7 +104,7 @@ while ([DateTime]::UtcNow -lt $deadline) {
       break
     }
   }
-  # Fallback: any window owned by this executable.
+  # 回退：该可执行文件拥有的任意带主窗口的进程。
   $scan = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exePath -and $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
   if ($scan) {
     $hwnd = $scan.MainWindowHandle
@@ -147,14 +139,13 @@ tell application "System Events"
     end if
     return "nowindow: " & errMsg
   end try
-  -- Primary: send the maximize instruction directly — resize the window to the
-  -- main screen's visible frame (set position/size is the broadly-supported
-  -- system window API, independent of the zoom button).
+  -- 主路径：直接发送最大化指令——把窗口设为主屏可视区尺寸
+  -- （set position/size 是系统窗口 API，广泛支持，不依赖缩放按钮）。
   try
     set scr to current application's NSScreen's mainScreen()
     set fullFrame to scr's frame()
     set visFrame to scr's visibleFrame()
-    -- An NSRect bridges to AppleScript as {{x, y}, {w, h}}.
+    -- NSRect 桥接为 AppleScript 是 {{x, y}, {w, h}}。
     set screenH to item 2 of item 2 of fullFrame
     set visX to item 1 of item 1 of visFrame
     set visY to item 2 of item 1 of visFrame
@@ -167,7 +158,7 @@ tell application "System Events"
     if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-1719") or (errMsg contains "-25211") or (errMsg contains "-1743") or (errMsg contains "辅助") then
       return "perm: " & errMsg
     end if
-    -- Remedy: click the green zoom button (the "maximize" command).
+    -- 补救：点击绿色缩放按钮（即「最大化」命令）。
     try
       click (first button of win whose subrole is "AXZoomButton")
       return "maximized (zoom click)"
@@ -233,8 +224,8 @@ async function maximizeWindows(ctx, options) {
     .replace('{TIMEOUT_MS}', String(options.timeoutMs));
   logLine(`maximizeWindows: start (hostPid=${process.pid}, exePath=${exePath}, timeoutMs=${options.timeoutMs})`);
 
-  // Candidate PowerShell executables, first success wins:
-  // configured pwsh path → pwsh 7 on PATH → Windows PowerShell 5.1 (always present).
+  // PowerShell 候选可执行文件，第一个成功的胜出：
+  // 配置的 pwsh 路径 → PATH 上的 pwsh 7 → Windows PowerShell 5.1（Windows 自带）。
   const candidates = [
     'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
     'pwsh',
@@ -250,14 +241,14 @@ async function maximizeWindows(ctx, options) {
     if (result.error && result.error.code === 'ENOENT') {
       logLine(`maximizeWindows: candidate "${candidate}" not installed (ENOENT)`);
       lastError = result.error;
-      continue; // this PowerShell is not installed — try the next one
+      continue; // 这个 PowerShell 未安装——试下一个
     }
     anyRan = true;
     const line = result.output.trim();
     logLine(`maximizeWindows: candidate "${candidate}" ran -> code=${result.code ?? '?'} output=${JSON.stringify(line).slice(0, 400)}`);
     if (line) ctx.logger.info(line);
-    if (/maximized/.test(result.output)) { logLine('maximizeWindows: SUCCESS'); return; } // success
-    // A PowerShell ran but found no window; lower versions won't do any better.
+    if (/maximized/.test(result.output)) { logLine('maximizeWindows: SUCCESS'); return; } // 成功
+    // 该 PowerShell 跑了但没找到窗口；更低的版本不会做得更好。
     lastError = new Error(result.output.trim() || 'no window found');
     break;
   }
@@ -275,7 +266,7 @@ async function maximizeDarwin(ctx, options) {
     const line = result.output.trim();
     logLine(`maximizeDarwin: attempt ${attempt} line=${JSON.stringify(line)}`);
     if (line) ctx.logger.info(line);
-    if (/maximized/.test(line)) { logLine('maximizeDarwin: SUCCESS'); return; } // zoom click or bounds fallback succeeded
+    if (/maximized/.test(line)) { logLine('maximizeDarwin: SUCCESS'); return; } // 缩放点击或边界回退成功
     if (/^perm:/i.test(line)) { sawPermission = true; break; }
     await sleep(1000);
   }
@@ -297,11 +288,11 @@ async function maximizeLinux(ctx, options) {
   const procName = appProcessName(options);
   logLine(`maximizeLinux: start (procName="${procName}")`);
   for (let attempt = 0; attempt < 3; attempt++) {
-    // wmctrl: match window title, add maximized states.
+    // wmctrl：按窗口标题匹配，追加最大化状态。
     const wm = await runTool('wmctrl', ['-r', procName, '-b', 'add,maximized_vert,maximized_horz'], { logger: ctx.logger });
     if (wm.error && wm.error.code === 'ENOENT') {
       logLine('maximizeLinux: wmctrl not installed');
-      // xdotool fallback: find window id by name, then set maximized states.
+      // xdotool 回退：按名称找窗口 id，再设置最大化状态。
       const found = await runTool('xdotool', ['search', '--name', procName], { logger: ctx.logger });
       if (found.error && found.error.code === 'ENOENT') {
         ctx.logger.warn('dsh-auto-maximize: neither wmctrl nor xdotool is installed; cannot maximize on Linux');
