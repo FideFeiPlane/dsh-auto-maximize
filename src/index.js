@@ -11,8 +11,11 @@
  *          2. Windows PowerShell 5.1 (powershell.exe, always present on Windows)
  *          → Win32 ShowWindow(hwnd, SW_MAXIMIZE) on the window owned by the
  *            Electron main process (found via the host's parent PID / exe path).
- *   darwin osascript → click the front window's AXZoomButton (the green button),
- *          requires the terminal/automation host to have Accessibility permission.
+ *   darwin osascript → click the front window's AXZoomButton (the green button,
+ *          i.e. exactly the "maximize" button); if that fails, set the window
+ *          bounds to the main screen's visible frame (AppleScriptObjC NSScreen).
+ *          Requires the caller to have Accessibility (System Events) permission;
+ *          a step-by-step grant guide is logged when the permission is missing.
  *   linux  wmctrl, then xdotool → set _NET_WM_STATE_MAXIMIZED on the app window
  *          (best-effort: these tools are usually not preinstalled).
  *
@@ -76,6 +79,54 @@ if ($hwnd -ne [IntPtr]::Zero) {
 } else {
   Write-Output 'dsh-auto-maximize: desktop window not found within timeout'
 }
+`;
+
+const DARWIN_SCRIPT = `
+use framework "AppKit"
+tell application "System Events"
+  try
+    set frontmost of process "{PROC}" to true
+  on error errMsg
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+      return "perm: " & errMsg
+    end if
+    return "fail: " & errMsg
+  end try
+  try
+    set win to front window of process "{PROC}"
+  on error errMsg
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+      return "perm: " & errMsg
+    end if
+    return "nowindow: " & errMsg
+  end try
+  -- Primary: click the green zoom button (exactly the "maximize" button).
+  try
+    click (first button of win whose subrole is "AXZoomButton")
+    return "maximized"
+  on error errMsg
+    if (errMsg contains "assistive access") or (errMsg contains "not authorized") or (errMsg contains "-25211") or (errMsg contains "-1743") then
+      return "perm: " & errMsg
+    end if
+    -- Non-permission failure: fall through to the geometry fallback below.
+  end try
+  -- Fallback: force maximize geometry to the main screen's visible frame.
+  try
+    set scr to current application's NSScreen's mainScreen()
+    set fullFrame to scr's frame()
+    set visFrame to scr's visibleFrame()
+    set screenH to item 4 of fullFrame
+    set visX to item 1 of visFrame
+    set visY to item 2 of visFrame
+    set visW to item 3 of visFrame
+    set visH to item 4 of visFrame
+    set position of win to {visX, screenH - (visY + visH)}
+    set size of win to {visW, visH}
+    return "maximized-bounds"
+  on error errMsg
+    return "fail: " & errMsg
+  end try
+end tell
 `;
 
 function runTool(file, args, { logger, extraTimeoutMs = 5000 }) {
@@ -157,25 +208,26 @@ async function maximizeWindows(ctx, options) {
 
 async function maximizeDarwin(ctx, options) {
   const procName = appProcessName(options);
-  const script = [
-    `tell application "System Events"`,
-    `  try`,
-    `    set frontmost of process "${procName}" to true`,
-    `    click (first button of front window of process "${procName}" whose subrole is "AXZoomButton")`,
-    `    return "maximized"`,
-    `  on error errMsg`,
-    `    return "failed: " & errMsg`,
-    `  end try`,
-    `end tell`,
-  ].join('\n');
+  const script = DARWIN_SCRIPT.replaceAll('{PROC}', procName);
+  let sawPermission = false;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const result = await runTool('osascript', ['-e', script], { logger: ctx.logger });
+    const result = await runTool('osascript', ['-e', script], { logger: ctx.logger, extraTimeoutMs: options.timeoutMs + 10000 });
     const line = result.output.trim();
     if (line) ctx.logger.info(line);
-    if (/maximized/.test(line)) return;
+    if (/maximized/.test(line)) return; // zoom click or bounds fallback succeeded
+    if (/^perm:/i.test(line)) { sawPermission = true; break; }
     await sleep(1000);
   }
-  ctx.logger.warn(`dsh-auto-maximize: could not maximize on macOS (osascript returned no zoom for "${procName}"; check Accessibility permission)`);
+  if (sawPermission) {
+    ctx.logger.warn(
+      'dsh-auto-maximize: macOS needs Accessibility permission to control windows via System Events. ' +
+      'Open System Settings → Privacy & Security → Accessibility, enable it for ' +
+      'DeepSeek Harness (and any app that launches it), then restart DeepSeek Harness. ' +
+      `(target process: "${procName}")`
+    );
+    return;
+  }
+  ctx.logger.warn(`dsh-auto-maximize: could not maximize on macOS (osascript returned no zoom/bounds for "${procName}")`);
 }
 
 async function maximizeLinux(ctx, options) {

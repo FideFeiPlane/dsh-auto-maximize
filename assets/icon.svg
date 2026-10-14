@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- dsh-auto-maximize placeholder icon: a "maximize" glyph (two overlapping squares). -->
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="#4f46e5"/>
+  <rect x="56" y="64" width="120" height="120" rx="18" fill="none" stroke="#ffffff" stroke-width="16"/>
+  <rect x="88" y="92" width="120" height="120" rx="18" fill="#ffffff" opacity="0.35" stroke="#ffffff" stroke-width="16"/>
+</svg>

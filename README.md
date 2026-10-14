@@ -13,7 +13,7 @@ DeepSeek Harness 桌面版插件：**打开时自动最大化主窗口**（等�
 | 平台 | 策略 | 依赖 | 备注 |
 |---|---|---|---|
 | Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** 自动回退 | pwsh 7 缺失时自动用 5.1（Windows 自带）；无需额外安装。5.1 的 `Add-Type` 内置编译器，脚本两版通用 |
-| macOS | AppleScript 点击窗口绿色 `AXZoomButton` | `osascript`（系统自带） | 需要「辅助功能/Accessibility」授权给调用方；`processName` 可覆盖应用名 |
+| macOS | 点击窗口绿色 `AXZoomButton`；失败则回退为把窗口设为主屏可视区大小（`NSScreen.visibleFrame`） | `osascript`（系统自带） | 需要「辅助功能/Accessibility」授权，未授权会给出指引日志；`processName` 可覆盖应用名 |
 | Linux | `wmctrl` → `xdotool` 设置 `_NET_WM_STATE_MAXIMIZED` | 通常**未预装**，需自行安装 | 尽力而为；两者都缺则跳过 |
 
 窗口定位（Windows）：优先取 host 进程的父进程 PID（即 Electron 主进程）且可执行文件路径一致，
@@ -66,6 +66,18 @@ dsh plugin --profile desktop add dsh-auto-maximize
 | `timeoutMs` | number | `20000` | 启动后持续寻找窗口的最长时间（毫秒） |
 | `processName` | string | 可执行文件名 | macOS/Linux 定位窗口用的进程/窗口标题名 |
 
+## macOS：需要「辅助功能」授权
+
+macOS 出于安全限制，用 `osascript`（System Events）控制其他 App 的窗口必须先获得
+**「辅助功能 / Accessibility」**授权。插件未获授权时会在 host 日志输出指引（关键字
+`dsh-auto-maximize`），按以下步骤授权后重启即可：
+
+1. 打开 **系统设置 → 隐私与安全性 → 辅助功能**；
+2. 勾选 **DeepSeek Harness**（以及承载/启动它的终端或启动器，如有）；
+3. 重启 DeepSeek Harness（授权对已运行的进程不生效）。
+
+仍无效时，可用 `processName` 指定实际的进程名——打包后应用显示名可能与可执行文件名不同。
+
 ## 卸载
 
 从 profile 的 `package.json` 两处（`dependencies` + `dsh.profile.bundles`）移除
@@ -94,7 +106,18 @@ npm publish --registry https://registry.npmjs.org
 
 - 仅在桌面版（desktop profile）有意义；web profile 无窗口，插件会安静跳过。
 - 只启动时执行一次，不会干预会话中手动调整的窗口状态。
+- 多实例/多窗口：Windows 上优先通过「host 的父进程 PID + 可执行路径」精确定位所属实例的
+  主窗口，多个 DSH 实例互不干扰；父进程匹配失败时才按可执行路径扫描，此时多开场景可能
+  命中另一个实例的窗口。macOS/Linux 取「最前端/首个匹配」窗口，多开时建议用 `processName` 区分。
 - 失败只写 host 日志（关键字 `dsh-auto-maximize`），不影响应用运行。
+
+## Roadmap（未实现，欢迎 PR）
+
+- **设置 UI 开关**：把 `enabled` 接进「设置 → 通用设置」。当前为 host-only 插件，只能通过
+  `cordis.patch.yml` 配置；做成界面开关需要 client-plugin 侧的设置面板扩展。
+- **去掉 PowerShell 依赖**：Windows 端可改用 FFI（koffi 等）直调 `user32.dll`，免起子进程；
+  但会引入原生二进制，破坏「零运行时依赖」，故暂未采用（现状：PS 5.1 为 Windows 自带）。
+- **正式图标**：`assets/icon.svg` 为占位设计（最大化双框图形），欢迎替换为正式图标。
 
 ## License
 

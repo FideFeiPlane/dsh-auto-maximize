@@ -14,7 +14,7 @@ call `BrowserWindow.maximize()` — instead it uses per-platform OS-level maximi
 | Platform | Strategy | Dependency | Notes |
 |---|---|---|---|
 | Windows | Win32 `ShowWindow(hwnd, SW_MAXIMIZE)` | **pwsh 7** → **Windows PowerShell 5.1** fallback | Falls back to 5.1 (always present on Windows) automatically; no install needed. The `Add-Type` script works on both. |
-| macOS | AppleScript clicks the green `AXZoomButton` | `osascript` (built-in) | Requires Accessibility permission for the caller; override the app name with `processName`. |
+| macOS | Click the green `AXZoomButton`; if that fails, set the window bounds to the main screen's visible frame (`NSScreen.visibleFrame`) | `osascript` (built-in) | Requires Accessibility permission for the caller; a grant guide is logged when missing. Override the app name with `processName`. |
 | Linux | `wmctrl` → `xdotool` set `_NET_WM_STATE_MAXIMIZED` | usually **not preinstalled** | Best-effort; skips silently if both are missing. |
 
 Window lookup (Windows): prefer the host's parent PID (the Electron main process) with a matching
@@ -69,6 +69,19 @@ Options:
 | `timeoutMs` | number | `20000` | max time to keep looking for the window (ms) |
 | `processName` | string | executable basename | process/window name to match on macOS/Linux |
 
+## macOS: Accessibility permission required
+
+On macOS, controlling another app's windows via `osascript` (System Events) requires
+**Accessibility** permission. When it is missing the plugin logs a guide (keyword
+`dsh-auto-maximize`). Grant it like this, then restart:
+
+1. Open **System Settings → Privacy & Security → Accessibility**.
+2. Enable **DeepSeek Harness** (and the terminal/launcher that hosts it, if any).
+3. Restart DeepSeek Harness (the grant does not affect already-running processes).
+
+If it still does not work, set `processName` to the real process name — a packaged app's
+display name can differ from its executable's basename.
+
 ## Uninstall
 
 Remove `dsh-auto-maximize` from both places in the profile's `package.json`
@@ -98,7 +111,21 @@ via its "Submit a plugin ↗" link (a `data/plugins/<owner>__<repo>.yml` file in
 
 - Only meaningful in the desktop profile; a web profile has no window and the plugin skips silently.
 - Runs once at startup; never touches window state you change during a session.
+- Multi-instance/multi-window: on Windows it first locates the owning instance's window via
+  "the host's parent PID + executable path", so multiple DSH instances don't interfere; only if
+  parent matching fails does it scan all windows for the executable, which may hit another
+  instance in a multi-open scenario. macOS/Linux take the "frontmost / first match" window —
+  use `processName` to disambiguate when running several instances.
 - On failure only writes to the host log (keyword `dsh-auto-maximize`); the app keeps running.
+
+## Roadmap (not implemented — PRs welcome)
+
+- **Settings UI toggle**: wire `enabled` into "Settings → General". The plugin is host-only and
+  currently reads `cordis.patch.yml` only; a UI switch needs a client-plugin settings panel.
+- **Drop the PowerShell dependency**: on Windows an FFI binding (e.g. koffi) could call
+  `user32.dll` directly without spawning a subprocess, but it would add a native binary and
+  break the "zero runtime deps" property, so it was not adopted (today PS 5.1 ships with Windows).
+- **Official icon**: `assets/icon.svg` is a placeholder maximize glyph — a real icon is welcome.
 
 ## License
 
