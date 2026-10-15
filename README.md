@@ -4,6 +4,8 @@ DeepSeek Harness 桌面版插件：**打开时自动最大化主窗口**（等�
 
 适用于 DSH 桌面版（desktop profile）与任何以 Electron/系统窗口运行 DSH 的场景。
 
+**仓库**：Gitee（主）<https://gitee.com/FideFei/dsh-auto-maximize> ｜ GitHub（镜像）<https://github.com/FideFeiPlane/dsh-auto-maximize>
+
 ## 原理与平台支持
 
 插件是 host-only 插件，随桌面版 host 进程在应用启动时加载。host 进程是 Node 子进程
