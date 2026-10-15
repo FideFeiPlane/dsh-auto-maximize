@@ -1,10 +1,7 @@
 # dsh-auto-maximize
 DeepSeek Harness 桌面版插件：启动自动最大化主窗口（等同于手动点击最大化按钮）
 
-DeepSeek Harness Desktop Plugin: Auto‑maximize main window on launch (same as clicking the Maximize button manually)
-
 适用于 DSH desktop profile，以及所有基于 Electron / 系统窗口运行 DSH 的场景。
-Compatible with the DSH desktop profile and all Electron / system window‑based DSH instances.
 
 
 ## 原理与平台支持
