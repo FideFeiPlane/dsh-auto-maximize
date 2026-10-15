@@ -4,6 +4,8 @@ DeepSeek Harness desktop plugin: **automatically maximizes the main window on st
 
 Works with the DSH desktop app (desktop profile) and any scenario where DSH runs inside an Electron/system window.
 
+**Repository**: Gitee (primary) <https://gitee.com/FideFei/dsh-auto-maximize> ｜ GitHub (mirror) <https://github.com/FideFeiPlane/dsh-auto-maximize>
+
 ## How it works & platform support
 
 The plugin is host-only: it loads in the host process at app startup. The host is a Node child process
