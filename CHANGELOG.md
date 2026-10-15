@@ -119,3 +119,7 @@ Change
 - Linux strategy: `wmctrl` → `xdotool` (`_NET_WM_STATE_MAXIMIZED`).
 - Config: `enabled`, `timeoutMs`, `processName`.
 - Smoke tests (node:test), publish-ready npm package (`dsh.bundle` manifest).
+
+---
+
+仓库：Gitee（主）<https://gitee.com/FideFei/dsh-auto-maximize> ｜ GitHub（镜像）<https://github.com/FideFeiPlane/dsh-auto-maximize>
